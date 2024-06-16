@@ -6,7 +6,7 @@ Este es el proyecto final que realicé en la asignatura de procesadores de lengu
    <img src="https://github.com/rorro6787/rorro6787/blob/main/Images/plxc.png" width = 100%/>
 </p>
 
-## Funcionalidades del Compilador
+## Descripción del Compilador
 
 - **Aspectos léxicos**: desde el punto de vista léxico el lenguaje PLX es igual que los lenguajes C, C++ y JAVA, y rigen las mismas reglas de ámbito de declaración de variables. PLX admite el mismo tipo de comentarios que C++. Cualquier duda que surja al implementar, y que no estuviera suficientemente clara en este enunciado debe resolverse de acuerdo con las especificaciones de estos lenguajes.
   
