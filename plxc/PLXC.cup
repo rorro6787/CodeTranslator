@@ -1,0 +1,997 @@
+import java_cup.runtime.*;
+import java.util.*;
+
+
+action code {: 
+
+    public Register castImplicito(Register a, Register b) {
+      Register RESULT = null;
+      if(a.tipo.equals("int") && b.tipo.equals("float")) {
+        RESULT = new Register("float", crearVariable());
+        gc.variableCast(RESULT.ident, a.ident, "float");
+      }
+      else if(a.tipo.equals("float") && b.tipo.equals("int")) {
+        RESULT = new Register("float", crearVariable());
+        gc.variableCast(RESULT.ident, b.ident, "float");
+      }
+      return RESULT;
+    }
+
+    public String buscar(String ident) {
+        return tc.buscar(ident);
+    }
+
+    public void insertar(String ident, String tipo) {
+        tc.insertar(ident, tipo);
+    }  
+
+    public Array buscarArray(String ident) {
+        return tcArray.get(ident);
+    }
+
+    public void insertarArray(String ident, String tipo, String tam) {
+        Array aux = new Array(tipo, tam);
+        tcArray.put(ident, aux);
+    } 
+
+    private String crearVariable() {
+        return "$t" + (registro++);
+    }
+
+    private String crearEtiqueta() {
+        return "L" + (etiqueta++);
+    } 
+
+    public class Register {
+      String tipo;
+      String ident;
+      
+      public Register(String tipo, String ident) {
+        this.tipo = tipo;
+        this.ident = ident;
+      }
+
+      @Override
+      public String toString() {
+        return this.tipo + " " + this.ident;
+      }
+    }
+
+    public class tresEtiquetas {
+        private String[] etiquetas = {null, null, null};
+
+        public tresEtiquetas() {
+            etiquetas[0] = crearEtiqueta();
+            etiquetas[1] = crearEtiqueta();
+        }
+
+        public tresEtiquetas(String primeraEtiqueta, String segundaEtiqueta) {
+            etiquetas[0] = primeraEtiqueta;
+            etiquetas[1] = segundaEtiqueta;
+        }
+
+        public String getTrue() {
+            return etiquetas[0];
+        }
+
+        public String getFalse() {
+            return etiquetas[1];
+        }
+
+        public String getOut() {
+            return etiquetas[2];
+        }
+
+        public void setTrue(String etiqueta) {
+            etiquetas[0] = etiqueta;
+        }
+
+        public void setFalse(String etiqueta) {
+            etiquetas[1] = etiqueta;
+        }
+
+        public void setOut(String etiqueta) {
+            etiquetas[2] = etiqueta;
+        }
+    }  
+:}
+
+parser code {: 
+    public class Array {
+      String tipo;
+      String tam;
+      public Array(String tipo, String tam) {
+        this.tipo = tipo;
+        this.tam = tam;
+      }
+      @Override
+      public String toString() {
+        return this.tipo + " " + this.tam;
+      }
+    }
+    Generador gc; 
+    private TablaSimbolos tc;
+    private HashMap<String, Array> tcArray;
+    public int registro;
+    private int etiqueta;
+    String tipoAux, variableAux;
+    String cast = null;
+    String dimplica, dimplica2;
+    boolean asignado = false;
+    String numeroAux;
+    int dentroImplica = 0;
+:}
+
+init with {: 
+    gc = new Generador(); 
+    tc = new TablaSimbolos();
+    tcArray = new HashMap<String, Array>();
+    registro = 0;
+    etiqueta = 0;
+:}
+
+/* TERMINALES */
+terminal IF, ELSE, DO, WHILE, FOR, PRINT; 
+
+terminal EQ, NE, LT, LE, GT, GE, NOT, AND, OR, IMPLICA, DIMPLICA, FORALL, EXISTS, FROM, TO, STEP; 
+
+terminal MAS, MENOS, POR, DIV, NEG, IGUAL; 
+
+terminal AP, CP, AC, CC, AL, CL; 
+
+terminal PYC, COMA, PUNTO, LENGTH; 
+
+terminal String VAR, BVAR, NUMERO, REAL, UNICODE, LETRA, INT, FLOAT, CHAR, STRING, PALABRA, BOOLEAN, VERDAD, CASTB, CASTI;
+
+/* NO-TERMINALES */
+non terminal conjSent, sent; 
+non terminal sent_print; 
+non terminal sent_if, sent_else; 
+non terminal tresEtiquetas cond; 
+non terminal Register exp; 
+non terminal String sent_while; 
+non terminal String sent_for, expFor; 
+non terminal String tipo, cast, castB;
+non terminal Register valores;
+non terminal declare, asig, multiDeclare, asig2;
+non terminal String array;
+non terminal ArrayList<Register> lista;
+non terminal String step;
+
+/* PRECEDENCIAS */
+precedence left IF, ELSE, DO, WHILE, FOR, PRINT, LENGTH;
+precedence left MAS, MENOS;
+precedence left POR, DIV;
+precedence right IMPLICA, DIMPLICA, EXISTS;
+precedence left FORALL, FROM, TO, STEP;
+precedence left EQ, LE, GE;
+precedence left NE, LT, GT;
+precedence left NOT, AND, OR;
+precedence left VAR, BVAR, NUMERO, REAL, UNICODE, LETRA, INT, FLOAT, CHAR, STRING, PALABRA, BOOLEAN, VERDAD;
+precedence nonassoc NEG;
+precedence nonassoc AP, CP;
+precedence nonassoc AC, CC;
+precedence nonassoc AL, CL;
+
+/* GRAMÁTICA */
+conjSent ::= conjSent sent
+        | sent
+        ;
+
+sent ::= exp PYC
+       | declare PYC
+       | sent_print
+       | sent_if
+       | sent_while
+       | sent_for
+       | AL conjSent:s CL {: RESULT = s; :}
+       | CASTB:a exp:b PYC {: 
+            tresEtiquetas aux = new tresEtiquetas();
+            aux.setOut(crearEtiqueta());
+            gc.ifIgual("$t" + (registro-1) + "", "0", aux.getFalse());
+            gc.salto(aux.getTrue());
+            gc.etiqueta(aux.getTrue());
+            gc.variable(a.charAt(0) + "", "1");
+            gc.salto(aux.getOut());
+            gc.etiqueta(aux.getFalse());
+            gc.variable(a.charAt(0) + "", "0");
+            gc.etiqueta(aux.getOut());
+         :}
+       ;
+
+sent_print ::=  PRINT AP exp:a CP PYC {: 
+                  Array aux = buscarArray(a.ident);
+                  if(aux != null) {
+                    int tam = Integer.parseInt(aux.tam);
+                    String variable1 = crearVariable();
+                    for(int i = 0; i < tam; ++i) {
+                      gc.variable(variable1, a.ident + "[" + i + "]");
+                      if(!aux.tipo.equals("char")) {
+                        gc.print(variable1);
+                      }
+                      else {
+                        gc.printC(variable1);
+                      }
+                    }
+                  }
+                  else {
+                    if(a.tipo.equals("char")) {
+                      gc.printC(a.ident);
+                    }
+                    else if(a.tipo.equals("string")) {
+                      if(a.ident.charAt(0) == '\"') {
+                        String variable1 = crearVariable();
+                        String variable2 = crearVariable();
+                        String variable3 = crearVariable();
+                        int j = 0;
+                        for(int i = 1; i < a.ident.length()-1; ++i) {
+                          if(a.ident.charAt(i) == '\\') {
+                            i = i + 1;
+                          }
+                          int letra = (int) a.ident.charAt(i);
+                          gc.variable(variable1 + "[" + j + "]", "" + letra);
+                          j = j + 1;
+                        }
+                        gc.variable("$" + variable1 + "_length", "" + j);
+                        gc.variable(variable2, "0");
+                        tresEtiquetas etiquetas = new tresEtiquetas();
+                        gc.etiqueta(etiquetas.getTrue());
+                        gc.ifMenor(variable2, "$" + variable1 + "_length", etiquetas.getFalse());
+                        etiquetas.setOut(crearEtiqueta());
+                        gc.salto(etiquetas.getOut()); 
+                        gc.etiqueta(etiquetas.getFalse());
+                        gc.variable(variable3, variable1 + "[" + variable2 + "]");
+                        System.out.println("\twritec " + variable3 + ";");
+                        System.out.println("\t" + variable2 + " = " + variable2 + " + 1;");
+                        gc.salto(etiquetas.getTrue());
+                        gc.etiqueta(etiquetas.getOut());
+                        System.out.println("\twritec 10;");
+                      }
+                      else {
+                        String variable1 = crearVariable();
+                        String variable2 = crearVariable();
+                        gc.variable(variable1, "0");
+                        tresEtiquetas etiquetas = new tresEtiquetas();
+                        gc.etiqueta(etiquetas.getTrue());
+                        gc.ifMenor(variable1, "$" + a.ident + "_length", etiquetas.getFalse());
+                        etiquetas.setOut(crearEtiqueta());
+                        gc.salto(etiquetas.getOut()); 
+                        gc.etiqueta(etiquetas.getFalse());
+                        gc.variable(variable2, a.ident + "[" + variable1 + "]");
+                        System.out.println("\twritec " + variable2 + ";");
+                        System.out.println("\t" + variable1 + " = " + variable1 + " + 1;");
+                        gc.salto(etiquetas.getTrue());
+                        gc.etiqueta(etiquetas.getOut());
+                        System.out.println("\twritec 10;");
+                      }
+                    }
+                    else {
+                      if(a.tipo.equals("boolean")) {
+                        tresEtiquetas saltos = new tresEtiquetas();
+                        saltos.setOut(crearEtiqueta());
+                        gc.ifIgual("1", a.ident, saltos.getTrue());
+                        gc.salto(saltos.getFalse());
+                        gc.etiqueta(saltos.getTrue());
+                        System.out.println("\twritec 116;\n\twritec 114;\n\twritec 117;\n\twritec 101;\n\twritec 10;");
+                        gc.salto(saltos.getOut());
+                        gc.etiqueta(saltos.getFalse());
+                        System.out.println("\twritec 102;\n\twritec 97;\n\twritec 108;\n\twritec 115;\n\twritec 101;\n\twritec 10;");
+                        gc.etiqueta(saltos.getOut());
+                      }
+                      else {
+                        gc.print(a.ident); 
+                      }
+                    }
+                  }
+                :}
+             |  PRINT AP AL lista:a CL CP PYC {:
+                  String variable1 = crearVariable();
+                  String variable2 = crearVariable();
+                  for(int i = 0; i < a.size(); ++i) {
+                    gc.variable(variable1 + "[" + i + "]", a.get(i).ident);
+                  }
+                  for(int i = 0; i < a.size(); ++i) {
+                    gc.variable(variable2, variable1 + "[" + i + "]");
+                    if(!a.get(i).tipo.equals("char")) {
+                      gc.print(variable2);
+                    }
+                    else {
+                      gc.printC(variable2);
+                    }
+                  }
+                :}
+             | PRINT AP cond:a CP PYC {:
+                  gc.etiqueta(a.getTrue());
+                  System.out.println("\twritec 116;\n\twritec 114;\n\twritec 117;\n\twritec 101;\n\twritec 10;");
+                  a.setOut(crearEtiqueta());
+                  gc.salto(a.getOut());
+                  gc.etiqueta(a.getFalse());
+                  System.out.println("\twritec 102;\n\twritec 97;\n\twritec 108;\n\twritec 115;\n\twritec 101;\n\twritec 10;");
+                  gc.etiqueta(a.getOut());
+               :}
+             ;
+
+sent_if ::= IF AP cond:c CP {: 
+                c.setOut(crearEtiqueta()); 
+                gc.etiqueta(c.getTrue()); 
+            :}
+            sent {: 
+                gc.salto(c.getOut()); 
+                gc.etiqueta(c.getFalse()); 
+            :}
+            sent_else {: gc.etiqueta(c.getOut()); :};
+
+sent_else ::= ELSE sent:s {: RESULT = s; :}
+            | /* Vacío */ 
+            ;
+
+sent_while ::= WHILE {: 
+                    RESULT = crearEtiqueta();
+                    gc.etiqueta(RESULT); 
+               :}
+               AP cond:c CP {: 
+                    c.setOut(RESULT);
+                    gc.etiqueta(c.getTrue());
+               :}
+               sent {: 
+                    gc.salto(c.getOut());
+                    gc.etiqueta(c.getFalse()); 
+               :}
+             | DO {: 
+                    RESULT = crearEtiqueta();
+                    gc.etiqueta(RESULT);
+               :}
+               sent WHILE AP cond:c CP PYC {: 
+                    c.setOut(RESULT);
+                    gc.etiqueta(c.getTrue()); 
+                    gc.salto(c.getOut()); 
+                    gc.etiqueta(c.getFalse());
+               :}
+             ;
+
+sent_for ::= FOR {: RESULT = crearEtiqueta(); :}
+             AP expFor PYC {: gc.etiqueta(RESULT); :}
+             cond:c PYC {: 
+                c.setOut(RESULT);
+                RESULT = crearEtiqueta(); 
+                gc.etiqueta(RESULT); 
+             :}
+             expFor CP {: 
+                gc.salto(c.getOut());
+                gc.etiqueta(c.getTrue()); :}
+                sent {: gc.salto(RESULT);
+                gc.etiqueta(c.getFalse()); 
+             :}
+           ;
+
+expFor ::= exp
+      | /* Vacío */
+      ;
+
+exp ::= cast:a {: cast = a; :} exp:b {:
+            RESULT = b;
+        :}
+      | valores:a {: RESULT = a; :}
+      | exp:a MAS exp:b {:
+            if(cast != null) {
+              if(cast.equals("int")) {
+                Register aux = new Register("int", crearVariable());
+                gc.variableCast(aux.ident, a.ident, "int");
+                a = aux;
+              }
+              else if(cast.equals("float")) {
+                Register aux1 = new Register("float", crearVariable());
+                Register aux2 = new Register("float", crearVariable());
+                gc.variableCast(aux1.ident, a.ident, "float");
+                gc.variableCast(aux2.ident, b.ident, "float");
+                a = aux1;
+                b = aux2;
+              }
+              cast = null;
+            }
+            Register aux = castImplicito(a, b);
+            if(aux != null) {
+              if(a.tipo.equals("int")) a = aux;
+              else b = aux;
+            }
+            RESULT = new Register(a.tipo, crearVariable());
+            if(a.tipo.equals("float")) {
+              gc.sumaReal(RESULT.ident, a.ident, b.ident);
+            }
+            else if(a.tipo.equals("int") && b.tipo.equals("int")) {
+              gc.suma(RESULT.ident, a.ident, b.ident);
+            }
+            else {
+              RESULT.tipo = "int";
+              gc.sumaChar(RESULT.ident, a.ident, b.ident);
+            }
+
+        :}
+      | exp:a MENOS exp:b {:
+            if(cast != null) {
+              if(cast.equals("int")) {
+                Register aux = new Register("int", crearVariable());
+                gc.variableCast(aux.ident, a.ident, "int");
+                a = aux;
+              }
+              else if(cast.equals("float")) {
+                Register aux1 = new Register("float", crearVariable());
+                Register aux2 = new Register("float", crearVariable());
+                gc.variableCast(aux1.ident, a.ident, "float");
+                gc.variableCast(aux2.ident, b.ident, "float");
+                a = aux1;
+                b = aux2;
+              }
+              cast = null;
+            }
+            Register aux = castImplicito(a, b);
+            if(aux != null) {
+              if(a.tipo.equals("int")) a = aux;
+              else b = aux;
+            }
+            RESULT = new Register(a.tipo, crearVariable());
+            if(a.tipo.equals("float")) {
+              gc.restaReal(RESULT.ident, a.ident, b.ident);
+            }
+            else if(a.tipo.equals("int")) {
+              gc.resta(RESULT.ident, a.ident, b.ident);
+            }
+            else {
+              RESULT.tipo = "int";
+              gc.restaChar(RESULT.ident, a.ident, b.ident);
+            }
+        :}
+      | exp:a POR exp:b {:
+            if(cast != null) {
+              if(cast.equals("int")) {
+                Register aux = new Register("int", crearVariable());
+                gc.variableCast(aux.ident, a.ident, "int");
+                a = aux;
+              }
+              else if(cast.equals("float")) {
+                Register aux1 = new Register("float", crearVariable());
+                Register aux2 = new Register("float", crearVariable());
+                gc.variableCast(aux1.ident, a.ident, "float");
+                gc.variableCast(aux2.ident, b.ident, "float");
+                a = aux1;
+                b = aux2;
+              }
+              cast = null;
+            }
+            Register aux = castImplicito(a, b);
+            if(aux != null) {
+              if(a.tipo.equals("int")) a = aux;
+              else b = aux;
+            }
+            RESULT = new Register(a.tipo, crearVariable());
+            if(a.tipo.equals("float")) {
+              gc.productoReal(RESULT.ident, a.ident, b.ident);
+            }
+            else {
+              gc.producto(RESULT.ident, a.ident, b.ident);
+            }
+        :}
+      | exp:a DIV exp:b {:
+            if(cast != null) {
+              if(cast.equals("int")) {
+                Register aux = new Register("int", crearVariable());
+                gc.variableCast(aux.ident, a.ident, "int");
+                a = aux;
+              }
+              else if(cast.equals("float")) {
+                Register aux1 = new Register("float", crearVariable());
+                Register aux2 = new Register("float", crearVariable());
+                gc.variableCast(aux1.ident, a.ident, "float");
+                gc.variableCast(aux2.ident, b.ident, "float");
+                a = aux1;
+                b = aux2;
+              }
+              cast = null;
+            }
+            Register aux = castImplicito(a, b);
+            if(aux != null) {
+              if(a.tipo.equals("int")) a = aux;
+              else b = aux;
+            }
+            RESULT = new Register(a.tipo, crearVariable());
+            if(a.tipo.equals("float")) {
+              gc.divisionReal(RESULT.ident, a.ident, b.ident);
+            }
+            else {
+              gc.division(RESULT.ident, a.ident, b.ident);
+            }
+        :}
+      | AP exp:a CP {:
+            if(cast != null) {
+              RESULT = new Register(cast, crearVariable());
+              gc.variableCast(RESULT.ident, a.ident, cast);
+              cast = null;
+            }
+            else {
+              RESULT = a;
+            }
+        :}
+      | MENOS exp:e {:
+            RESULT = new Register(e.tipo, crearVariable());
+            gc.negativo(RESULT.ident, e.ident);
+        :} %prec NEG
+      | BVAR:a IGUAL cast:c cond:b {:
+            //System.out.println("HOLA");
+            if(c != null) { cast = c; }
+            RESULT = new Register("boolean", a);
+            if(b.getOut() == null) {
+              b.setOut(crearEtiqueta());
+            }
+            gc.etiqueta(b.getTrue());
+            gc.variable(a, "1");
+            gc.salto(b.getOut());
+            gc.etiqueta(b.getFalse());
+            gc.variable(a, "0");
+            gc.etiqueta(b.getOut());
+      :}
+      | BVAR:a {:
+            RESULT = new Register("boolean", a);
+        :}
+      | AP INT CP cond:b {:
+          gc.etiqueta(b.getTrue());
+          String aux = crearVariable();
+          gc.variable(aux, "1");
+          gc.etiqueta(b.getFalse());
+          RESULT = new Register("int", aux);
+        :}
+      | VAR:a IGUAL exp:b {:
+            Array listaA = buscarArray(a);
+            Array listaB = buscarArray(b.ident);
+            if(listaA != null) {
+              if(!listaA.tipo.equals(listaB.tipo)) {
+                gc.errorHalt();
+              }
+              int tam = Integer.parseInt(listaA.tam);
+              String variable1 = crearVariable();
+              RESULT = new Register(listaA.tipo, a);
+              for(int i = 0; i < tam; ++i) {
+                gc.variable(variable1, b.ident + "[" + i + "]");
+                gc.variable(a + "[" + i + "]", variable1);
+              }
+            }
+            else {
+              String tipoA = buscar(a);
+              if(tipoA.equals(b.tipo)) {
+                if(tipoA.equals("string")) {
+                  String variable1 = crearVariable();
+                  String variable2 = crearVariable();
+                  String variable3 = crearVariable();
+                  int j = 0;
+                  for(int i = 1; i < b.ident.length()-1; ++i) {
+                    if(b.ident.charAt(i) == '\\') {
+                      i = i + 1;
+                    }
+                    int letra = (int) b.ident.charAt(i);
+                    gc.variable(variable1 + "[" + j + "]", "" + letra);
+                    j = j + 1;
+                  }
+                  gc.variable("$" + variable1 + "_length", "" + j);
+                  gc.variable("$" + a + "_length", "0");
+                  gc.variable(variable2, "0");
+                  tresEtiquetas etiquetas = new tresEtiquetas();
+                  gc.etiqueta(etiquetas.getTrue());
+                  gc.ifMenor(variable2, "$" + variable1 + "_length", etiquetas.getFalse());
+                  etiquetas.setOut(crearEtiqueta());
+                  gc.salto(etiquetas.getOut()); 
+                  gc.etiqueta(etiquetas.getFalse());
+                  gc.variable(variable3, variable1 + "[" + variable2 + "]");         
+                  gc.variable(a + "[$" + a + "_length]", variable3);
+                  System.out.println("\t$" + a + "_length = " + "$" + a + "_length + 1;");
+                  System.out.println("\t" + variable2 + " = " + variable2 + " + 1;");
+                  gc.salto(etiquetas.getTrue());
+                  gc.etiqueta(etiquetas.getOut());
+                }
+                else {
+                  RESULT = new Register(tipoA, a);
+                  gc.variable(RESULT.ident, b.ident);
+                }
+              }
+              else if(tipoA.equals("float") && b.tipo.equals("int")) {
+                RESULT = new Register("float", a);
+                gc.variableCast(RESULT.ident, b.ident, "float");
+              }
+              else if(cast != null && 
+                    (tipoA.equals("int") && b.tipo.equals("char") && cast.equals("int") || 
+                      tipoA.equals("char") && b.tipo.equals("int") && cast.equals("char"))) {
+                gc.variable(a, b.ident);
+              }       
+              else {
+                gc.errorHalt();
+              }
+              cast = null;
+            }
+        :}
+      | VAR:a {: 
+            String tipoA = buscar(a);
+            if(tipoA != null) {
+              RESULT = new Register(tipoA, a);
+            }
+            else {
+              Array valorA = buscarArray(a);
+              if(valorA != null) {
+                RESULT = new Register(valorA.tipo, a);
+              }
+            }
+        :}
+      | VAR:a AC exp:b CC IGUAL exp:c {:
+            Array aux = buscarArray(a);
+            if(aux != null) {
+              tresEtiquetas etiq = new tresEtiquetas();
+              gc.ifMenor(b.ident, "0", etiq.getTrue());
+              gc.ifMenor(aux.tam, b.ident, etiq.getTrue());
+              gc.ifIgual(aux.tam, b.ident, etiq.getTrue());
+              gc.salto(etiq.getFalse());
+              gc.etiqueta(etiq.getTrue());
+              System.out.println("\terror;\n\thalt;");
+              gc.etiqueta(etiq.getFalse());
+              RESULT = new Register(aux.tipo, a);
+              gc.variable(RESULT.ident + "[" + b.ident + "]", c.ident);
+            }
+        :} 
+      | VAR:a AC exp:b CC {:
+            Array aux = buscarArray(a);
+            if(aux != null) {
+              tresEtiquetas etiq = new tresEtiquetas();
+              gc.ifMenor(b.ident, "0", etiq.getTrue());
+              gc.ifMenor(aux.tam, b.ident, etiq.getTrue());
+              gc.ifIgual(aux.tam, b.ident, etiq.getTrue());
+              gc.salto(etiq.getFalse());
+              gc.etiqueta(etiq.getTrue());
+              System.out.println("\terror;\n\thalt;");
+              gc.etiqueta(etiq.getFalse());
+              RESULT = new Register(aux.tipo, crearVariable());
+              gc.variable(RESULT.ident, a + "[" + b.ident + "]");
+            }
+        :}
+      | VAR:a IGUAL AL lista:b CL {:
+            Array aux = buscarArray(a);
+            if(aux != null) {
+              String tipo = aux.tipo;
+              RESULT = new Register(aux.tipo, a);
+              String variable1 = crearVariable();
+              int tam = Integer.parseInt(aux.tam);
+              if(tam < b.size()) {
+                gc.errorHalt();
+              }
+              for(int i = 0; i < b.size(); ++i) {
+                Register element = b.get(i);
+                if(!element.tipo.equals(tipo)) {
+                  gc.errorHalt();
+                }
+                gc.variable(variable1 + "[" + i + "]", element.ident);
+              }
+              String variable2 = crearVariable();
+              for(int i = 0; i < b.size(); ++i) {
+                gc.variable(variable2, variable1 + "[" + i + "]");
+                gc.variable(a + "[" + i + "]", variable2);
+              }
+            }
+        :}
+        | VAR:a PUNTO LENGTH {:
+          Array aux = buscarArray(a);
+          if(aux != null) {
+            RESULT = new Register("int", "$" + a + "_length");
+          }
+        :}
+      ;
+
+lista ::= exp:a COMA lista:b {:
+              RESULT = new ArrayList<Register>();
+              RESULT.add(a);
+              RESULT.addAll(b);
+          :}
+        | exp:a {: 
+              RESULT = new ArrayList<Register>(); 
+              RESULT.add(a);
+          :}
+        ;
+
+declare ::= tipo:b VAR:a array:c {: 
+                      if(c == null) {
+                        tipoAux = b; 
+                        insertar(a, tipoAux); 
+                        variableAux = a; 
+                      }
+                      else {
+                        insertarArray(a, b, c);
+                        tipoAux = "array";
+                        variableAux = a;
+                      }
+                   :} 
+                   asig {: 
+                    if(c != null) { 
+                      System.out.println("\t$" + a + "_length = " + c + ";"); 
+                    } 
+                    if(tipoAux.equals("boolean") && !asignado) {
+                      gc.variable(a, "0");
+                    }
+                    else {
+                      asignado = false;
+                    }
+                  :} 
+                   multiDeclare
+          ;
+
+array ::= AC exp:a CC {: RESULT = a.ident; :}
+        | /* Vacío */ {: RESULT = null; :}
+        ;
+
+
+
+asig ::=  IGUAL cond:b {:
+            if(tipoAux.equals("int")) {
+              gc.variable(variableAux, numeroAux);
+            }
+            else {
+              if(b.getOut() == null) {
+                b.setOut(crearEtiqueta());
+              }
+              gc.etiqueta(b.getTrue());
+              gc.variable(variableAux, "1");
+              gc.salto(b.getOut());
+              gc.etiqueta(b.getFalse());
+              gc.variable(variableAux, "0");
+              gc.etiqueta(b.getOut());
+              asignado = true;
+            }
+          :}
+       |  IGUAL AL lista:b CL {:
+            Array aux = buscarArray(variableAux);
+            String tipo = aux.tipo;
+            String variable1 = crearVariable();
+            int tam = Integer.parseInt(aux.tam);
+            if(tam < b.size()) {
+              gc.errorHalt();
+            }
+            for(int i = 0; i < b.size(); ++i) {
+              Register element = b.get(i);
+              if(!element.tipo.equals(tipo)) {
+                gc.errorHalt();
+              }
+              gc.variable(variable1 + "[" + i + "]", element.ident);
+            }
+            String variable2 = crearVariable();
+            for(int i = 0; i < b.size(); ++i) {
+              gc.variable(variable2, variable1 + "[" + i + "]");
+              gc.variable(variableAux + "[" + i + "]", variable2);
+            }
+          :}
+       | /* Vacío */
+       ;
+
+multiDeclare ::= COMA VAR:a {:
+                    insertar(a, tipoAux);
+                    variableAux = a;
+                 :}
+                 asig multiDeclare
+               | /* Vacío */ 
+               ;
+
+tipo ::= INT:a {: RESULT = a; :}
+       | FLOAT:a {: RESULT = a; :}
+       | CHAR:a {: RESULT = a; :}
+       | STRING:a {: RESULT = a; :}
+       | BOOLEAN:a {: RESULT = a; :}
+       ;
+
+cast ::= AP FLOAT:a CP {: RESULT = a; :} %prec IF
+       | AP CHAR:a CP {: RESULT = a; :} %prec IF
+       | AP BOOLEAN:a CP {: RESULT = a; :} %prec IF
+       | AP NUMERO:a CP {: RESULT = a; :} %prec IF
+       | /* Vacío */ {: RESULT = null; :} %prec IF
+       ;
+
+
+valores ::= NUMERO:a {: RESULT = new Register("int", a); numeroAux = a; :}
+          | REAL:a {: RESULT = new Register("float", a); :}
+          | LETRA:a {: RESULT = new Register("char", a); :}
+          | UNICODE:a {: 
+              a = a.replace("\\u", "");
+              char unicode = (char) Integer.parseInt(a, 16);
+              RESULT = new Register("char", "'" + unicode + "'"); 
+            :}
+          | PALABRA:a {: RESULT = new Register("string", a); :}
+          ;
+
+cond ::= exp:a EQ exp:b {: 
+            RESULT = new tresEtiquetas();
+            gc.ifIgual(a.ident, b.ident, RESULT.getTrue()); 
+            gc.salto(RESULT.getFalse()); 
+         :}
+       | VERDAD:a {:
+          RESULT = new tresEtiquetas();
+          if(a.equals("true")) {
+            gc.salto(RESULT.getTrue());
+          }
+          else {
+            gc.salto(RESULT.getFalse());
+          }
+       :}
+       | exp:b {:
+            String a = cast;
+            if(b.tipo.equals("boolean")) {
+              RESULT = new tresEtiquetas();
+              gc.ifIgual("1", b.ident, RESULT.getTrue());
+              gc.salto(RESULT.getFalse());
+            }
+            else if(tipoAux.equals("int")) {
+
+            }
+            else if(b.tipo.equals("int")) {
+              if(a != null) {
+                if(a.equals("boolean")) {
+            
+                }
+                else {
+                  gc.errorHalt();
+                }
+              }
+              else {
+                gc.errorHalt();
+              }
+            }
+            else {
+              gc.errorHalt();
+            }
+         :}
+       | exp:a NE exp:b {: 
+            RESULT = new tresEtiquetas();
+            gc.ifIgual(a.ident, b.ident, RESULT.getFalse()); 
+            gc.salto(RESULT.getTrue()); 
+         :}
+       | exp:a LT exp:b {: 
+            RESULT = new tresEtiquetas();
+            gc.ifMenor(a.ident, b.ident, RESULT.getTrue());
+            gc.salto(RESULT.getFalse()); 
+         :}
+       | exp:a LE exp:b {: 
+            RESULT = new tresEtiquetas();
+            gc.ifMenor(b.ident, a.ident, RESULT.getFalse()); 
+            gc.salto(RESULT.getTrue()); 
+         :}
+       | exp:a GT exp:b {: 
+            RESULT = new tresEtiquetas();
+            gc.ifMenor(b.ident, a.ident, RESULT.getTrue()); 
+            gc.salto(RESULT.getFalse()); 
+         :}
+       | exp:a GE exp:b {: 
+            RESULT = new tresEtiquetas();
+            gc.ifMenor(a.ident, b.ident, RESULT.getFalse()); 
+            gc.salto(RESULT.getTrue()); 
+         :}
+       | AP cond:a CP {: RESULT = a; :}
+       | NOT cond:c {: 
+            RESULT = new tresEtiquetas(c.getFalse(), c.getTrue()); 
+         :}
+       | cond:a AND {: gc.etiqueta(a.getTrue()); :}
+         cond:b {: 
+            gc.etiqueta(a.getFalse());
+            gc.salto(b.getFalse()); 
+            RESULT = b; 
+         :}
+       | cond:a OR {: gc.etiqueta(a.getFalse()); :}
+         cond:b {: 
+            gc.etiqueta(a.getTrue());
+            gc.salto(b.getTrue()); 
+            RESULT = b; 
+         :}
+       | cond:a IMPLICA {: gc.etiqueta(a.getTrue()); :}
+         cond:b {: 
+            gc.etiqueta(b.getTrue());
+            gc.salto(a.getFalse()); 
+            b.setTrue(a.getFalse());
+            RESULT = b; 
+         :}
+       | cond:a DIMPLICA {: 
+            ++dentroImplica;
+            if(dentroImplica == 2) {
+              gc.etiqueta(a.getTrue()); 
+              dimplica2 = crearVariable();
+              gc.variable(dimplica2, "1"); 
+              gc.etiqueta(a.getFalse()); 
+            }
+            else {
+              gc.etiqueta(a.getTrue()); 
+              dimplica = crearVariable(); 
+              gc.variable(dimplica, "1"); 
+              gc.etiqueta(a.getFalse()); 
+            }
+         :}
+         cond:b {: 
+            if(dentroImplica == 2) {
+              gc.etiqueta(b.getTrue());
+              tresEtiquetas aux = new tresEtiquetas();
+              gc.ifIgual(dimplica2, "1", aux.getTrue());
+              gc.salto(aux.getFalse()); 
+              gc.etiqueta(b.getFalse());
+              gc.ifIgual(dimplica2, "1", aux.getFalse());
+              gc.salto(aux.getTrue());
+              b.setTrue(aux.getTrue());
+              b.setFalse(aux.getFalse());
+              RESULT = b; 
+              --dentroImplica;
+            }
+            else {
+              gc.etiqueta(b.getTrue());
+              tresEtiquetas aux = new tresEtiquetas();
+              gc.ifIgual(dimplica, "1", aux.getTrue());
+              gc.salto(aux.getFalse()); 
+              gc.etiqueta(b.getFalse());
+              gc.ifIgual(dimplica, "1", aux.getFalse());
+              gc.salto(aux.getTrue());
+              b.setTrue(aux.getTrue());
+              b.setFalse(aux.getFalse());
+              RESULT = b; 
+              --dentroImplica;
+            }
+         :}
+        | FORALL BVAR:a COMA {: 
+            gc.variable(a, "0"); 
+            RESULT = new tresEtiquetas(); 
+            gc.etiqueta(RESULT.getTrue()); 
+          :} 
+          cond:b {:
+            gc.etiqueta(b.getTrue());
+            gc.ifIgual("1", a, RESULT.getFalse());
+            gc.variable(a, "1");
+            gc.salto(RESULT.getTrue());
+            String aux = RESULT.getFalse();
+            RESULT = b;
+            RESULT.setTrue(aux);
+          :}
+        | EXISTS BVAR:a COMA {: 
+            gc.variable(a, "0"); 
+            RESULT = new tresEtiquetas(); 
+            gc.etiqueta(RESULT.getTrue()); 
+          :} 
+          cond:b {:
+            gc.etiqueta(b.getFalse());
+            gc.ifIgual("1", a, RESULT.getFalse());
+            gc.variable(a, "1");
+            gc.salto(RESULT.getTrue());
+            String aux = b.getTrue();
+            b.setFalse(RESULT.getFalse());
+            RESULT = b;
+            RESULT.setTrue(aux);
+          :}
+        | FORALL VAR:a FROM NUMERO:num1 TO NUMERO:num2 step:num3 COMA {: 
+            gc.variable(a, num1); 
+            RESULT = new tresEtiquetas(); 
+            gc.etiqueta(RESULT.getTrue()); 
+            gc.ifMenor(num2, a, RESULT.getFalse());
+          :} 
+          cond:b {:
+            gc.etiqueta(b.getTrue());
+            gc.variable(a, a + " + " + (num3 == null ? 1 : num3));
+            gc.salto(RESULT.getTrue());
+            String aux = RESULT.getFalse();
+            RESULT = b;
+            RESULT.setTrue(aux);
+          :}
+        | EXISTS VAR:a FROM NUMERO:num1 TO NUMERO:num2 step:num3 COMA {: 
+            gc.variable(a, num1); 
+            RESULT = new tresEtiquetas(); 
+            gc.etiqueta(RESULT.getTrue()); 
+            gc.ifMenor(num2, a, RESULT.getFalse());
+          :} 
+          cond:b {:
+            gc.etiqueta(b.getFalse());
+            gc.variable(a, a + " + " + (num3 == null ? 1 : num3));
+            gc.salto(RESULT.getTrue());
+            String aux = b.getTrue();
+            b.setFalse(RESULT.getFalse());
+            RESULT = b;
+            RESULT.setTrue(aux);
+          :}
+       ;
+
+step ::= STEP NUMERO:a {: RESULT = a; :}
+       | /* Vacío */ {: RESULT = null; :}
+       ;
+       
+
